@@ -18,7 +18,7 @@ from utilsProcess import removeZeros, removeZerosSingle
 
 class DataReaderSPAM(DataReader):
 	"""
-	One major difference with SPAM data is that you can have multiple data files in the same measumrent directory
+	One major difference with SPAM data is that you can have multiple data files in the same measurement directory
 	Therefore, have to read all the XTR/XTRX files
 	Read in the start and end times
 	NOTE: For spam data, the start and end times in the XTR files
@@ -32,11 +32,11 @@ class DataReaderSPAM(DataReader):
 		# get a list of the header and data files in the folder
 		self.headerF = glob.glob(os.path.join(self.dataPath,"*.XTR"))
 		if len(self.headerF) == 0:
-			self.headerF = glob.glob(os.path.join(self.dataPath,"*.XTRX"))			
+			self.headerF = glob.glob(os.path.join(self.dataPath,"*.XTRX"))
 		self.dataF = glob.glob(os.path.join(self.dataPath,"*.RAW"))
 		# data byte information
 		self.dataByteOffset = {} # because this potentially might be different for each file
-		self.recChannels = {}		
+		self.recChannels = {}
 		self.dataByteSize = 4
 		# data type
 		self.dtype = np.float32
@@ -60,24 +60,24 @@ class DataReaderSPAM(DataReader):
 		data = {}
 		for chan in options["chans"]:
 			data[chan] = np.zeros(shape=(options["endSample"] - options["startSample"] + 1), dtype=self.dtype)
-		
+
 		# loop through chans and get data
-		sampleCounter = 0			
+		sampleCounter = 0
 		for dFile, sToRead, scalar in zip(dataFilesToRead, samplesToRead, scalings):
 			# get samples - this is inclusive
-			dSamples = sToRead[1] - sToRead[0] + 1	
-			dSamplesRead = dSamples*self.recChannels[dFile] # because spam files always record 5 channels	
+			dSamples = sToRead[1] - sToRead[0] + 1
+			dSamplesRead = dSamples*self.recChannels[dFile] # because spam files always record 5 channels
 			# read the data
 			byteOff = self.dataByteOffset[dFile] + sToRead[0]*self.recChannels[dFile]*self.dataByteSize
-			dFilePath = os.path.join(self.getDataPath(), dFile)			
+			dFilePath = os.path.join(self.getDataPath(), dFile)
 			dataRead = np.memmap(dFilePath, dtype=self.dtype, mode="r", offset=byteOff, shape=(dSamplesRead))
 			# now need to unpack this
-			for chan in options["chans"]:		
+			for chan in options["chans"]:
 				# check to make sure channel exists
 				self.checkChan(chan)
 				# get the channel index - the chanIndex should give the right order in the data file
 				# as it is the same order as in the header file
-				chanIndex = self.chanMap[chan] 
+				chanIndex = self.chanMap[chan]
 				# use the range sampleCounter -> sampleCounter +  dSamples, because this actually means sampleCounter + dSamples - 1
 				# scale by the lsb scalar here - note that these can be different for each file in the run
 				data[chan][sampleCounter : sampleCounter + dSamples] = dataRead[chanIndex:dSamplesRead:self.recChannels[dFile]]*scalar[chan]
@@ -86,8 +86,8 @@ class DataReaderSPAM(DataReader):
 			# increment sample counter
 			sampleCounter = sampleCounter + dSamples # get ready for the next data read
 
-		# return the data		
-		return data	
+		# return the data
+		return data
 
 	def getDataFilesForSamples(self, startSample, endSample):
 		# have the datafiles saved in sample order beginning with the earliest first
@@ -108,9 +108,9 @@ class DataReaderSPAM(DataReader):
 				readFrom = startSample - fileStartSamp
 			if fileEndSamp > endSample:
 				readTo = endSample - fileStartSamp
-			# this is an inclusive number readFrom to readTo including readTo				
+			# this is an inclusive number readFrom to readTo including readTo
 			samplesToRead.append([readFrom, readTo])
-			scalings.append(self.scalings[idx]) 
+			scalings.append(self.scalings[idx])
 		return dataFilesToRead, samplesToRead, scalings
 
 	###################
@@ -124,19 +124,19 @@ class DataReaderSPAM(DataReader):
 	# magnetic fields is mV - need to calibrate to get magnetic field in nT
 	def getPhysicalSamples(self, **kwargs):
 		# initialise chans, startSample and endSample with the whole dataset
-		options = self.parseGetDataKeywords(kwargs)		
+		options = self.parseGetDataKeywords(kwargs)
 		# get data
 		data = self.getUnscaledSamples(chans=options["chans"], startSample=options["startSample"], endSample=options["endSample"])
 		# the LSB is applied in getUnscaledSamples - this is for ease of calculation and because each data file in the run might have a separate lsb
 		# so all that is left is to divide by the dipole length in km and remove the average
-		for chan in options["chans"]:	
+		for chan in options["chans"]:
 			if chan == 'Ex':
 				# multiply by 1000/self.getChanDx same as dividing by dist in km
 				data[chan] = 1000*data[chan]/self.getChanDx(chan)
 			if chan == 'Ey':
-				# multiply by 1000/self.getChanDy same as dividing by dist in km					
-				data[chan] = 1000*data[chan]/self.getChanDy(chan)					
-			
+				# multiply by 1000/self.getChanDy same as dividing by dist in km
+				data[chan] = 1000*data[chan]/self.getChanDy(chan)
+
 			# if remove zeros - False by default
 			if options["remzeros"]:
 				data[chan] = removeZerosSingle(data[chan])
@@ -146,7 +146,7 @@ class DataReaderSPAM(DataReader):
 			# remove the average from the data - True by default
 			if options["remaverage"]:
 				data[chan] = data[chan] - np.average(data[chan])
-								
+
 		# if magnetic channel, just return
 		return data
 
@@ -162,14 +162,14 @@ class DataReaderSPAM(DataReader):
 		sectionHeaders['CHANNAME'] = ['ITEMS', 'NAME']
 		sectionHeaders['DATA'] = ['ITEMS', 'CHAN']
 		return sections, sectionHeaders
-	
+
 	# some default chan headers
 	def chanDefaults(self):
 		chanH = {}
 		chanH["gain_stage1"] = 1
 		chanH["gain_stage2"] = 1
 		chanH["hchopper"] = 0 # this depends on sample frequency
-		chanH["echopper"] = 0			
+		chanH["echopper"] = 0
 		# channel output information (sensor_type, channel_type, ts_lsb, pos_x1, pos_x2, pos_y1, pos_y2, pos_z1, pos_z2, sensor_sernum)
 		chanH["ats_data_file"] = ""
 		chanH["num_samples"] = 0
@@ -179,15 +179,15 @@ class DataReaderSPAM(DataReader):
 		# the lsb/scaling is not applied. data is raw voltage which needs to be scaled
 		# an lsb is constructed from the scaling in the XTR/XTRX file to take the data to mV
 		chanH["lsb_applied"] = False # check this
-		chanH["pos_x1"] = 0 
+		chanH["pos_x1"] = 0
 		chanH["pos_x2"] = 0
 		chanH["pos_y1"] = 0
 		chanH["pos_y2"] = 0
 		chanH["pos_z1"] = 0
 		chanH["pos_z2"] = 0
-		chanH["sensor_sernum"] = 0	
+		chanH["sensor_sernum"] = 0
 		return chanH
-	
+
 	# read in header file
 	# there may be more than a single file in the folder
 	# in that case - want to merge header files
@@ -203,11 +203,11 @@ class DataReaderSPAM(DataReader):
 				headers, chanHeaders = self.readHeaderXTR(headerFile)
 			self.headersList.append(headers)
 			self.chanHeadersList.append(chanHeaders)
-		
+
 		# check to make sure no gaps
 		# calculate out the sample ranges
 		# and list the data files for each sample
-		self.mergeHeaders(self.headersList, self.chanHeadersList) 
+		self.mergeHeaders(self.headersList, self.chanHeadersList)
 
 	# read xtr format
 	def readHeaderXTR(self, headerFile):
@@ -219,9 +219,9 @@ class DataReaderSPAM(DataReader):
 		for line in lines:
 			line = line.strip()
 			line = line.replace("'", " ")
-			# continue if line is empty 
+			# continue if line is empty
 			if line == "":
-				continue			
+				continue
 			if "[" in line:
 				sec = line[1:-1]
 				sectionLines[sec] = []
@@ -232,7 +232,7 @@ class DataReaderSPAM(DataReader):
 		headers = {}
 		# recording information (start_time, start_date, stop_time, stop_date, ats_data_file)
 		fileLine = sectionLines["FILE"][0]
-		fileSplit = fileLine.split() 
+		fileSplit = fileLine.split()
 		headers["sample_freq"]	= np.absolute(float(fileSplit[-1]))
 		timeLine = sectionLines["FILE"][2]
 		timeSplit = timeLine.split()
@@ -241,14 +241,14 @@ class DataReaderSPAM(DataReader):
 		datetimeStart = datetime.utcfromtimestamp(startDate)
 		stopDate = float(timeSplit[3] + "." + timeSplit[4])
 		datetimeStop = datetime.utcfromtimestamp(stopDate)
-		headers["start_date"] = datetimeStart.strftime("%Y-%m-%d") 	
+		headers["start_date"] = datetimeStart.strftime("%Y-%m-%d")
 		headers["start_time"] = datetimeStart.strftime("%H:%M:%S.%f")
-		headers["stop_date"] = datetimeStop.strftime("%Y-%m-%d") 
+		headers["stop_date"] = datetimeStop.strftime("%Y-%m-%d")
 		headers["stop_time"] = datetimeStop.strftime("%H:%M:%S.%f")
 		# here calculate number of samples
 		deltaSeconds = (datetimeStop - datetimeStart).total_seconds()
 		# calculate number of samples - have to add one because the time given in SPAM recording is the actual time of the last sample
-		numSamples = int(deltaSeconds*headers["sample_freq"]) + 1 
+		numSamples = int(deltaSeconds*headers["sample_freq"]) + 1
 		# put these in headers for ease of future calculations in merge headers
 		headers["num_samples"] = numSamples
 		headers["ats_data_file"] = fileSplit[1] # spam datasets only have the one data file for all channels
@@ -263,34 +263,34 @@ class DataReaderSPAM(DataReader):
 			# set the sample frequency from the main headers
 			chanH["sample_freq"] = headers["sample_freq"]
 			# line data - read through the data in the correct channel order
-			chanLine = sectionLines["CHANNAME"][iChan + 1] 
+			chanLine = sectionLines["CHANNAME"][iChan + 1]
 			chanSplit = chanLine.split()
-			dataLine = sectionLines["DATA"][iChan + 1]	
+			dataLine = sectionLines["DATA"][iChan + 1]
 			dataSplit = dataLine.split()
 			# channel input information (gain_stage1, gain_stage2, hchopper, echopper)
 			chanH["gain_stage1"] = 1
-			chanH["gain_stage2"] = 1			
+			chanH["gain_stage2"] = 1
 			# channel output information (sensor_type, channel_type, ts_lsb, pos_x1, pos_x2, pos_y1, pos_y2, pos_z1, pos_z2, sensor_sernum)
 			chanH["ats_data_file"] = fileSplit[1]
 			chanH["num_samples"] = numSamples
-			
-			# channel information	
+
+			# channel information
 			chanH["channel_type"] = consistentChans(chanSplit[2]) # spams often use Bx, By - use H within the software as a whole
-			# the sensor number is a bit of a hack - want MFSXXe or something - add MFS in front of the sensor number	
+			# the sensor number is a bit of a hack - want MFSXXe or something - add MFS in front of the sensor number
 			# this is liable to break
 			# at the same time, set the chopper
-			calLine = sectionLines["200{}003".format(iChan + 1)][0] 
+			calLine = sectionLines["200{}003".format(iChan + 1)][0]
 			calSplit = calLine.split()
-			if isMagnetic(chanH["channel_type"]):	
+			if isMagnetic(chanH["channel_type"]):
 				chanH["sensor_sernum"] = calSplit[2] # the last three digits is the serial number
-				sensorType = calSplit[1].split("_")[1][-2:]	
-				chanH["sensor_type"] = "MFS{:02d}".format(int(sensorType))									
+				sensorType = calSplit[1].split("_")[1][-2:]
+				chanH["sensor_type"] = "MFS{:02d}".format(int(sensorType))
 				if "LF" in calSplit[1]:
-					chanH["hchopper"] = 1				
+					chanH["hchopper"] = 1
 			else:
 				chanH["sensor_type"] = "ELC00"
-				if "LF" in calLine:				
-					chanH["echopper"] = 1	
+				if "LF" in calLine:
+					chanH["echopper"] = 1
 
 			# the scaling - recall, the data is raw voltage of sensors
 			# gain needs to be removed - this is in the scaling = 1/1000*total_gain (gain1*gain2)
@@ -300,12 +300,12 @@ class DataReaderSPAM(DataReader):
 			scaling = float(dataSplit[-2])
 			if isElectric(chanH["channel_type"]):
 				# the factor of 100000 is not entirely clear
-				lsb = 1000000.0*scaling				
+				lsb = 1000000.0*scaling
 				lsb = -1*lsb # reverse polarity
 			else:
 				# the spam scaling in the xtr file for magnetic fields includes the static gain correction
 				# however, a static gain correction is applied in the calibration
-				# in order to avoid duplication, the scaling in the xtr file ignored for the magnetic channels	
+				# in order to avoid duplication, the scaling in the xtr file ignored for the magnetic channels
 				lsb = -1000.0 # volts to millivolts and a minus to switch polarity
 			chanH["ts_lsb"] = lsb
 
@@ -319,16 +319,16 @@ class DataReaderSPAM(DataReader):
 			if chanSplit[2] == "Ez":
 				chanH["pos_z1"] = float(dataSplit[4])/2
 				chanH["pos_z2"] = chanH["pos_z1"]
-							
+
 			# append chanHeaders to the list
 			chanHeaders.append(chanH)
-		
+
 		# check information from raw file headers
 		self.headersFromRawFile(headers["ats_data_file"], headers)
 
 		# return the headers and chanHeaders from this file
 		return headers, chanHeaders
-				
+
 	# read the newer xtrx format
 	def readHeaderXTRX(self, headerFile):
 		self.printWarning("Reading of XTRX files has not been implemented yet")
@@ -359,7 +359,7 @@ class DataReaderSPAM(DataReader):
 		# NOTE: extended header ignored
 
 		# read EVENT HEADER - there can be multiple of these, but normally only the one
-		# events are largely deprecated. Only a single event is used		
+		# events are largely deprecated. Only a single event is used
 		eventHeaders = []
 		fileSize = os.path.getsize(os.path.join(self.getDataPath(), rawFile))
 		record = generalHeader["firstEvent"]
@@ -384,7 +384,7 @@ class DataReaderSPAM(DataReader):
 		        eH["startData"] = int(eventSplit[11])
 		        eH["extended"] = int(eventSplit[12])
 		        eventHeaders.append(eH)
-		        if eH["nextEH"] < generalHeader["totalRec"]:    
+		        if eH["nextEH"] < generalHeader["totalRec"]:
 		        	record = eH["nextEH"] # set to go to next eH
 		        else:
 		            break # otherwise break out of for loops
@@ -395,7 +395,7 @@ class DataReaderSPAM(DataReader):
 			self.printWarning("Data file: {}".format(dFile))
 			self.printWarning("Number of samples in raw file header {} does not equal that calculated from data {}".format(eventHeaders[0]["numData"], headers["num_samples"]))
 			self.printWarning("Number of samples calculated from data will be used")
-		# set the byte offset for the file	
+		# set the byte offset for the file
 		self.dataByteOffset[rawFile] = (eventHeaders[0]["startData"] - 1)*generalHeader["recLength"]
 		self.recChannels[rawFile] = generalHeader["numCh"]
 
@@ -412,7 +412,7 @@ class DataReaderSPAM(DataReader):
 		if len(headersList) == 1:
 			# just fill in the data file list and data ranges
 			self.dataFileList = [self.headers["ats_data_file"]]
-			self.dataRanges = [[0, self.headers["num_samples"]-1]]			
+			self.dataRanges = [[0, self.headers["num_samples"]-1]]
 			self.scalings = []
 			tmp = {}
 			for cHeader in self.chanHeaders:
@@ -426,20 +426,20 @@ class DataReaderSPAM(DataReader):
 		stopTimes = []
 		numSamples = []
 		for idx, header in enumerate(headersList):
-			if header["sample_freq"] != self.headers["sample_freq"]: 
+			if header["sample_freq"] != self.headers["sample_freq"]:
 				self.printWarning("Not all datasets in {} have the same sample frequency".format(self.dataPath))
 				self.printWarning("Exiting")
 				exit()
-			if header["meas_channels"] != self.headers["meas_channels"]: 
+			if header["meas_channels"] != self.headers["meas_channels"]:
 				self.printWarning("Not all datasets in {} have the same number of channels".format(self.dataPath))
 				self.printWarning("Exiting")
-				exit()				
+				exit()
 			# now store startTimes, stopTimes and numSamples
 			# do this as datetimes, will be easier
 			startString = "{} {}".format(header["start_date"], header["start_time"])
 			stopString = "{} {}".format(header["stop_date"], header["stop_time"])
 			datetimeStart = datetime.strptime(startString, "%Y-%m-%d %H:%M:%S.%f")
-			datetimeStop = datetime.strptime(stopString, "%Y-%m-%d %H:%M:%S.%f")			
+			datetimeStop = datetime.strptime(stopString, "%Y-%m-%d %H:%M:%S.%f")
 			startTimes.append(datetimeStart)
 			stopTimes.append(datetimeStop)
 			numSamples.append(header["num_samples"])
@@ -487,7 +487,7 @@ class DataReaderSPAM(DataReader):
 			tmp = {}
 			for cHeader in self.chanHeadersList[iSort]:
 				tmp[cHeader["channel_type"]] = cHeader["ts_lsb"]
-			self.scalings.append(tmp)		
+			self.scalings.append(tmp)
 
 		# now set the LSB information for the chanHeaders
 		# i.e. if they change, this should reflect that
@@ -513,7 +513,7 @@ class DataReaderSPAM(DataReader):
 		self.headers["stop_time"] = datetimeStop.strftime("%H:%M:%S.%f")
 		self.headers["num_samples"] = totalSamples
 		# set datafiles = the whole list of datafiles
-		self.headers["ats_data_file"] = self.dataFileList		
+		self.headers["ats_data_file"] = self.dataFileList
 		for iChan in xrange(0, len(self.chanHeaders)):
 			self.chanHeaders[iChan]["start_date"] = datetimeStart.strftime("%Y-%m-%d")
 			self.chanHeaders[iChan]["start_time"] = datetimeStart.strftime("%H:%M:%S.%f")
@@ -521,32 +521,32 @@ class DataReaderSPAM(DataReader):
 			self.chanHeaders[iChan]["stop_time"] = datetimeStop.strftime("%H:%M:%S.%f")
 			self.chanHeaders[iChan]["num_samples"] = totalSamples
 			self.chanHeaders[iChan]["ats_data_file"] = self.dataFileList
-	
+
 	###################
 	### DEBUG
-	##################		
+	##################
 	def printInfoBegin(self):
-		self.printText("####################")	
-		self.printText("EMERALD READER INFO BEGIN")		
-		self.printText("####################")	
+		self.printText("####################")
+		self.printText("EMERALD READER INFO BEGIN")
+		self.printText("####################")
 
 	def printInfoEnd(self):
-		self.printText("####################")	
-		self.printText("EMERALD READER INFO BEGIN")		
+		self.printText("####################")
+		self.printText("EMERALD READER INFO BEGIN")
 		self.printText("####################")
 
 	def printDataFileList(self):
-		self.printText("####################")	
-		self.printText("EMERALD READER DATA FILE LIST BEGIN")		
 		self.printText("####################")
-		self.printText("Data File\t\tSample Ranges")				
+		self.printText("EMERALD READER DATA FILE LIST BEGIN")
+		self.printText("####################")
+		self.printText("Data File\t\tSample Ranges")
 		for dFile, sRanges in zip(self.dataFileList, self.dataRanges):
 			self.printText("{}\t\t{} - {}".format(dFile, sRanges[0], sRanges[1]))
 		self.printText("Total samples = {}".format(self.getNumSamples()))
-		self.printText("####################")	
-		self.printText("EMERALD READER DATA FILE LIST END")		
-		self.printText("####################")					
-		
+		self.printText("####################")
+		self.printText("EMERALD READER DATA FILE LIST END")
+		self.printText("####################")
+
 	def printText(self, infoStr):
 		generalPrint("Emerald Reader Info", infoStr)
 
