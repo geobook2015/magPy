@@ -75,7 +75,7 @@ class DataReader(object):
 
 	# get a header value
 	def getHeaderVal(self, headerName):
-		return self.headers[headerName]		
+		return self.headers[headerName]
 
 	# these could all be put in a parent class
 	def getNumChannels(self):
@@ -106,7 +106,7 @@ class DataReader(object):
 		return self.datetimeStart.utctimetuple()
 
 	def getStartDatetimeString(self):
-		return self.datetimeStart.strftime("%Y-%m-%d %H:%M:%S.%f")		
+		return self.datetimeStart.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 	def getStopTime(self):
 		return self.getHeaderVal("stop_time")
@@ -118,10 +118,10 @@ class DataReader(object):
 		return deepcopy(self.datetimeStop)
 
 	def getStopDatetimeTuple(self):
-		return self.datetimeStop.utctimetuple()		
+		return self.datetimeStop.utctimetuple()
 
 	def getStopDatetimeString(self):
-		return self.datetimeStop.strftime("%Y-%m-%d %H:%M:%S.%f")			
+		return self.datetimeStop.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 	def getGain1(self):
 		gain1 = np.zeros(shape=(self.numChannels), dtype=bool)
@@ -150,7 +150,7 @@ class DataReader(object):
 				chanHeaders.append(self.getChanHeaders[headerI])
 				chanMap[c] = idx
 			return chanHeaders, chanMap
-		else: 
+		else:
 			return deepcopy(self.chanHeaders), deepcopy(self.chanMap)
 
 	def getChanMap(self):
@@ -160,51 +160,51 @@ class DataReader(object):
 		# should check to see if chan exists
 		self.checkChan(chan)
 		iChan = self.chanMap[chan]
-		return self.chanHeaders[iChan][header]	
+		return self.chanHeaders[iChan][header]
 
 	def getChanType(self, chan):
-		return self.getChanHeader(chan, "channel_type")						
+		return self.getChanHeader(chan, "channel_type")
 
-	def getChanGain1(self, chan):		
+	def getChanGain1(self, chan):
 		return self.getChanHeader(chan, "gain_stage1")
 
-	def getChanGain2(self, chan):		
+	def getChanGain2(self, chan):
 		return self.getChanHeader(chan, "gain_stage2")
 
-	def getChanSamples(self, chan):		
+	def getChanSamples(self, chan):
 		return self.getChanHeader(chan, "num_samples")
-	
+
 	def getChanSampleFreq(self, chan):
 		return self.getChanHeader(chan, "sample_freq")
 
-	def getChanLSB(self, chan):		
+	def getChanLSB(self, chan):
 		return self.getChanHeader(chan, "ts_lsb")
 
 	def getChanLSBApplied(self, chan):
 		return self.getChanHeader(chan, "lsb_applied")
 
-	def getChanDataFile(self, chan):	
+	def getChanDataFile(self, chan):
 		return self.getChanHeader(chan, "ats_data_file")
 
 	# Purely for ease, just absolute these distance values
 	# for Dx, Dy and Dz and then add them up
-	def getChanDx(self, chan):		
+	def getChanDx(self, chan):
 		x1 = np.absolute(self.getChanHeader(chan, "pos_x1"))
 		x2 = np.absolute(self.getChanHeader(chan, "pos_x2"))
 		return x2 + x1
 
-	def getChanDy(self, chan):		
+	def getChanDy(self, chan):
 		y1 = np.absolute(self.getChanHeader(chan, "pos_y1"))
 		y2 = np.absolute(self.getChanHeader(chan, "pos_y2"))
 		return y2 + y1
 
-	def getChanDz(self, chan):	
+	def getChanDz(self, chan):
 		z1 = np.absolute(self.getChanHeader(chan, "pos_z1"))
 		z2 = np.absolute(self.getChanHeader(chan, "pos_z2"))
 		return z2 + z1
 
 	def getChanSensor(self, chan):
-		return self.getChanHeader(chan, "sensor_type")		
+		return self.getChanHeader(chan, "sensor_type")
 
 	def getChanSerial(self, chan):
 		return self.getChanHeader(chan, "sensor_sernum")
@@ -237,8 +237,8 @@ class DataReader(object):
 	def getChoppers(self, chans):
 		choppers = {}
 		for chan in chans:
-			choppers[chan] = self.getChanChopper(chan)		
-		return choppers				
+			choppers[chan] = self.getChanChopper(chan)
+		return choppers
 
 	###################
 	### GET INFO FOR MULTIPLE CHANNELS
@@ -259,13 +259,13 @@ class DataReader(object):
 	def getUnscaledSamples(self, **kwargs):
 		# initialise chans, startSample and endSample with the whole dataset
 		options = self.parseGetDataKeywords(kwargs)
-	
+
 		# get samples - this is inclusive
 		dSamples = options["endSample"] - options["startSample"] + 1
 
 		# loop through chans and get data
 		data = {}
-		for chan in options["chans"]:		
+		for chan in options["chans"]:
 			# check to make sure channel exists
 			self.checkChan(chan)
 			# get data file
@@ -278,31 +278,31 @@ class DataReader(object):
 			else:
 				data[chan] = np.memmap(dFile, dtype="int32", mode="r", offset=byteOff, shape=(dSamples))
 		# return data for the channels
-		return data	
-	
+		return data
+
 	def getUnscaledData(self, startTime, endTime, **kwargs):
-		options = self.parseGetDataKeywords(kwargs)	
+		options = self.parseGetDataKeywords(kwargs)
 		startSample, endSample = self.time2sample(startTime, endTime)
-		return self.getUnscaledSamples(chans=options["chans"], startSample=startSample, endSample=endSample)	
+		return self.getUnscaledSamples(chans=options["chans"], startSample=startSample, endSample=endSample)
 
 	###################
 	### PHYSICAL DATA
 	##################
 	# get data in physical units
 	# ATS provides unscaled data in counts (*lsb gives mV)
-	# SPAM provides unscaled data in 
+	# SPAM provides unscaled data in
 	# the count data/unscaled data * lsb is assumed to give data in mV
 	# using field units
 	# electric field in mV/km
 	# magnetic fields is mV - need to calibrate to get magnetic field in nT
 	def getPhysicalSamples(self, **kwargs):
 		# initialise chans, startSample and endSample with the whole dataset
-		options = self.parseGetDataKeywords(kwargs)		
-		
+		options = self.parseGetDataKeywords(kwargs)
+
 		# get data
 		data = self.getUnscaledSamples(chans=options["chans"], startSample=options["startSample"], endSample=options["endSample"])
 		# multiply each chan by least significant bit of chan
-		for chan in options["chans"]:	
+		for chan in options["chans"]:
 			if not self.getChanLSBApplied(chan):
 				# apply LSB
 				data[chan] = data[chan]*self.getChanLSB(chan) # this gives data in mV
@@ -313,8 +313,8 @@ class DataReader(object):
 					# multiply by 1000/self.getChanDx same as dividing by dist in km
 					data[chan] = 1000*data[chan]/self.getChanDx(chan)
 				if chan == 'Ey':
-					# multiply by 1000/self.getChanDy same as dividing by dist in km					
-					data[chan] = 1000*data[chan]/self.getChanDy(chan)	
+					# multiply by 1000/self.getChanDy same as dividing by dist in km
+					data[chan] = 1000*data[chan]/self.getChanDy(chan)
 
 			# if remove zeros - False by default
 			if options["remzeros"]:
@@ -325,12 +325,12 @@ class DataReader(object):
 			# remove the average from the data - True by default
 			# do this after all scaling and removing nans and zeros
 			if options["remaverage"]:
-				data[chan] = data[chan] - np.average(data[chan])					
+				data[chan] = data[chan] - np.average(data[chan])
 		# if magnetic channel, just return
 		return data
 
 	def getPhysicalData(self, startTime, endTime, **kwargs):
-		options = self.parseGetDataKeywords(kwargs)		
+		options = self.parseGetDataKeywords(kwargs)
 		startSample, endSample = self.time2sample(startTime, endTime)
 		return self.getPhysicalSamples(chans=options["chans"], startSample=startSample, endSample=endSample)
 
@@ -352,7 +352,7 @@ class DataReader(object):
 		# do some checks
 		if options["endSample"] >= self.getNumSamples():
 			options["endSample"] = self.getNumSamples()-1
-			self.printWarning("End sample greater than number of samples. Adjusted to {:d}".format(endSample))	
+			self.printWarning("End sample greater than number of samples. Adjusted to {:d}".format(endSample))
 		# return
 		return options
 
@@ -363,19 +363,24 @@ class DataReader(object):
 	# recall
 	# the first sample is zero
 	def time2sample(self, timeStart, timeEnd):
+		# if timeStart and timeEnd are strings, then convert them to datetime objects
+		if isinstance(timeStart, basestring):
+			timeStart = datetime.strptime(timeStart, "%Y-%m-%d %H:%M:%S")
+		if isinstance(timeEnd, basestring):
+			timeEnd = datetime.strptime(timeEnd, "%Y-%m-%d %H:%M:%S")
 		# check to see times within range
 		timeStart, timeEnd = self.getDataTimes(timeStart, timeEnd)
 		# start sample
 		deltaStart = timeStart - self.getStartDatetime()
-		sampleStart = deltaStart.total_seconds()*self.getSampleFreq()	
+		sampleStart = deltaStart.total_seconds()*self.getSampleFreq()
 		sampleStart = int(round(sampleStart)) # this will hopefully deal with fractional sampling
-		# end sample	
+		# end sample
 		deltaEnd = timeEnd - timeStart
 		deltaSamples = deltaEnd.total_seconds()/self.getSampleRate()
 		deltaSamples = int(round(deltaSamples))
 		sampleEnd = sampleStart + deltaSamples
-		# return samples	
-		return sampleStart, sampleEnd		
+		# return samples
+		return sampleStart, sampleEnd
 
 	def sample2time(self, sampleStart, sampleEnd):
 		# convert samples to some data format
@@ -390,17 +395,17 @@ class DataReader(object):
 		deltaStart = timeStart - self.getStartDatetime()
 		deltaEnd = self.getStopDatetime() - timeEnd
 		if deltaStart.total_seconds() < 0:
-			self.printText("Date {} before start of recording. Start date adjusted to {}".format(timeStart, self.getStartDatetime()))			
-			timeStart = self.getStartDatetime() 	
+			self.printText("Date {} before start of recording. Start date adjusted to {}".format(timeStart, self.getStartDatetime()))
+			timeStart = self.getStartDatetime()
 		if deltaEnd.total_seconds() < 0:
-			self.printText("Date {} after end of recording. Stop date adjusted to {}".format(timeEnd, self.getStopDatetime()))			
+			self.printText("Date {} after end of recording. Stop date adjusted to {}".format(timeEnd, self.getStopDatetime()))
 			timeEnd = self.getStopDatetime()
-		return timeStart, timeEnd			
+		return timeStart, timeEnd
 
 	###################
 	### READ HEADER
 	### each subclass should have a read header function
-	### which reads the appropriate data format	
+	### which reads the appropriate data format
 	##################
 	# set the data types for each header
 	def intHeaders(self):
@@ -422,7 +427,7 @@ class DataReader(object):
 	def readHeader(self):
 		# this is implemented in the child classes
 		return
-	
+
 	# deal with the data formats
 	def formatHeaderData(self):
 		# do the int formatting
@@ -459,8 +464,8 @@ class DataReader(object):
 		self.chans = []
 		self.chanMap = {}
 		for iChan in xrange(0, self.getNumChannels()):
-			chanType = self.chanHeaders[iChan]["channel_type"]		
-			self.chanMap[chanType] = iChan 
+			chanType = self.chanHeaders[iChan]["channel_type"]
+			self.chanMap[chanType] = iChan
 			self.chans.append(chanType)
 
 		# check the number of samples of each channel
@@ -485,7 +490,7 @@ class DataReader(object):
 		# do a calculation and amend appropriately
 		# this is the internal convention - start and end times should reflect the times of the first and last sample
 		startTime, endTime = self.sample2time(0, self.getNumSamples()-1)
-		if endTime != self.datetimeStop:		
+		if endTime != self.datetimeStop:
 			self.datetimeStop = endTime
 			self.headers["stop_date"] = self.datetimeStop.strftime("%Y-%m-%d")
 			self.headers["stop_time"] = self.datetimeStop.strftime("%H:%M:%S.%f")
@@ -495,16 +500,16 @@ class DataReader(object):
 
 	###################
 	### Error checking functions
-	##################		
+	##################
 	def checkChan(self, chan):
 		if chan not in self.chans:
 			"Error - Channel does not exist"
 
 	###################
 	### DEBUG
-	##################		
+	##################
 	# print headers
-	def printInfo(self):		
+	def printInfo(self):
 		# print the headers
 		self.printInfoBegin()
 		self.printText("Data Path = {}".format(self.getDataPath()))
@@ -515,28 +520,25 @@ class DataReader(object):
 		self.printText("Channel Map")
 		self.printText(self.chanMap)
 		self.printText("Channel Headers")
-		for c in self.chans:		
+		for c in self.chans:
 			self.printText(c)
 			self.printText(self.chanHeaders[self.chanMap[c]])
 		self.printText("Note: Field units used. Physical data has units mV/km for electric fields and mV for magnetic fields")
-		self.printText("Note: To get magnetic field in nT, please calibrate")	
+		self.printText("Note: To get magnetic field in nT, please calibrate")
 		self.printInfoEnd()
 
 	def printInfoBegin(self):
-		self.printText("####################")	
-		self.printText("DATA READER INFO BEGIN")		
-		self.printText("####################")	
+		self.printText("####################")
+		self.printText("DATA READER INFO BEGIN")
+		self.printText("####################")
 
 	def printInfoEnd(self):
 		self.printText("####################")
-		self.printText("DATA READER INFO END")		
-		self.printText("####################")			
-		
+		self.printText("DATA READER INFO END")
+		self.printText("####################")
+
 	def printText(self, infoStr):
 		generalPrint("Data Reader Info", infoStr)
 
 	def printWarning(self, warnStr):
 		warningPrint("Data Reader Warning", warnStr)
-
-
-

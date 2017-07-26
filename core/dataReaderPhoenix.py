@@ -8,6 +8,7 @@ import os
 import glob
 import re, struct
 import xml.etree.ElementTree as ET
+import collections
 from datetime import datetime, timedelta
 import numpy as np
 # import dataReader
@@ -32,15 +33,31 @@ class DataReaderPhoenix(DataReader):
 		# get a list of the header and data files in the folder
 		self.headerF = glob.glob(os.path.join(self.dataPath,"*.TBL"))
 		self.dataF = glob.glob(os.path.join(self.dataPath,"*.TS*"))
-		print self.headerF
-		print self.dataF
+		# set the sample byte size
+		self.sampleByteSize = 3 # two's complement
+		self.tagByteSize = 32
+		self.dtype = int
 		# there will be multiple TS files in here
 		# need to figure out
 		self.numHeaderFiles = len(self.headerF)
 		self.numDataFiles = len(self.dataF)
 
-	def initialise():
-		return
+
+	###################
+	### GET METHODS
+	### Some additional get methods for phoenix data
+	##################
+	def getSamplesRatesTS(self):
+		info = {}
+		for num, sr in zip(self.tsNums, self.tsSampleRates):
+			info[num] = sr
+		return info
+
+	def getNumberSamplesTS(self):
+		info = {}
+		for num, ns in zip(self.tsNums, self.tsNumSamples):
+			info[num] = ns
+		return info
 
 	###################
 	### COUNT DATA
@@ -51,22 +68,33 @@ class DataReaderPhoenix(DataReader):
 		options = self.parseGetDataKeywords(kwargs)
 
 		# get the files to read and the samples to take from them, in the correct order
-		dataFilesToRead, samplesToRead, scalings = self.getDataFilesForSamples(options["startSample"], options["endSample"])
+		recordsToRead, samplesToRead = self.getRecordsForSamples(options["startSample"], options["endSample"])
 		# set up the dictionary to hold the data
 		data = {}
 		for chan in options["chans"]:
 			data[chan] = np.zeros(shape=(options["endSample"] - options["startSample"] + 1), dtype=self.dtype)
 
+		# open the file
+		dFile = open(self.continuousF, "rb")
+
 		# loop through chans and get data
 		sampleCounter = 0
-		for dFile, sToRead, scalar in zip(dataFilesToRead, samplesToRead, scalings):
-			# get samples - this is inclusive
+		for record, sToRead in zip(recordsToRead, samplesToRead):
+			# number of samples to read in record
 			dSamples = sToRead[1] - sToRead[0] + 1
-			dSamplesRead = dSamples*self.recChannels[dFile] # because spam files always record 5 channels
-			# read the data
-			byteOff = self.dataByteOffset[dFile] + sToRead[0]*self.recChannels[dFile]*self.dataByteSize
-			dFilePath = os.path.join(self.getDataPath(), dFile)
-			dataRead = np.memmap(dFilePath, dtype=self.dtype, mode="r", offset=byteOff, shape=(dSamplesRead))
+			# find the byte read start and byte read end
+			recordByteStart = self.recordBytes[self.continuous][record]
+			recordSampleStart = self.recordSampleStarts[self.continuous][record]
+			# find the offset on the readFrom bytes
+			# now recall, each sample is recorded as a scan (all channels recorded at the same time)
+			# so multiply by number of channels to get the number of bytes to read
+			byteReadStart = recordByteStart + (sToRead[0] - recordSampleStart)*self.sampleByteSize*self.getNumChannels()
+			bytesToRead = dSamples*self.sampleByteSize*self.getNumChannels()
+			# read the data - numpy does not support 24 bit two's complement (3 bytes) - hence use struct
+			dFile.seek(byteReadStart, 0) # seek to start byte from start of file
+			dataBytes = dFile.read(bytesToRead)
+			#dataBytes = struct.unpack("{}s".format(bytesToRead), dFile.read(bytesToRead))[0]
+			dataRead = self.twosComplement(dataBytes)
 			# now need to unpack this
 			for chan in options["chans"]:
 				# check to make sure channel exists
@@ -74,18 +102,37 @@ class DataReaderPhoenix(DataReader):
 				# get the channel index - the chanIndex should give the right order in the data file
 				# as it is the same order as in the header file
 				chanIndex = self.chanMap[chan]
-				# use the range sampleCounter -> sampleCounter +  dSamples, because this actually means sampleCounter + dSamples - 1
-				# scale by the lsb scalar here - note that these can be different for each file in the run
-				data[chan][sampleCounter : sampleCounter + dSamples] = dataRead[chanIndex:dSamplesRead:self.recChannels[dFile]]*scalar[chan]
-				# previous implementation had no scaling
-				# data[chan][sampleCounter : sampleCounter + dSamples] = dataRead[chanIndex:dSamplesRead:self.recChannels[dFile]]
+				# now populate the channel data appropriately
+				data[chan][sampleCounter : sampleCounter + dSamples] = dataRead[chanIndex:dSamples*self.getNumChannels():self.getNumChannels()]
 			# increment sample counter
 			sampleCounter = sampleCounter + dSamples # get ready for the next data read
 
-		# return the data
+		# close file and return the data
+		dFile.close()
 		return data
 
-	def readTag(dataFile):
+	def getRecordsForSamples(self, startSample, endSample):
+		# this reads the data from the continuous recording only
+		recordsToRead = []
+		samplesToRead = []
+		for record, timeStart in enumerate(self.recordStarts[self.continuous]):
+			recordStartSamp = self.recordSampleStarts[self.continuous][record]
+			recordEndSamp = self.recordSampleStops[self.continuous][record]
+			if recordStartSamp > endSample or recordEndSamp < startSample:
+				continue # nothing to read from this file
+			# in this case, there is some overlap with the samples to read
+			recordsToRead.append(record)
+			readFrom = recordStartSamp # i.e. the first sample in the datafile
+			readTo = recordEndSamp # this the last sample in the file
+			if recordStartSamp < startSample:
+				readFrom = startSample
+			if recordEndSamp > endSample:
+				readTo = endSample
+			# this is an inclusive number readFrom to readTo including readTo
+			samplesToRead.append([readFrom, readTo])
+		return recordsToRead, samplesToRead
+
+	def readTag(self, dataFile):
 	    second = struct.unpack('b', dataFile.read(1))[0]
 	    minute = struct.unpack('b', dataFile.read(1))[0]
 	    hour = struct.unpack('b', dataFile.read(1))[0]
@@ -94,15 +141,15 @@ class DataReaderPhoenix(DataReader):
 	    year = struct.unpack('b', dataFile.read(1))[0]
 	    dayOfWeek = struct.unpack('b', dataFile.read(1))[0]
 	    century = struct.unpack('b', dataFile.read(1))[0]
-	    print "{:02d}:{:02d}:{:02d} {:02d}/{:02d}/{:02d}".format(hour, minute, second, day, month, year)
+	    dateString = "{:02d}{:02d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.000".format(century, year, month, day, hour, minute, second)
 	    # serial number
 	    serialNum = struct.unpack('h', dataFile.read(2))
 	    # num scans
 	    numScans = struct.unpack('h', dataFile.read(2))[0]
-	    print "numScans = {}".format(numScans)
+	    # print "numScans = {}".format(numScans)
 	    # channels per scan
 	    numChans = struct.unpack('b', dataFile.read(1))[0]
-	    print "numChans = {}".format(numChans)
+	    # print "numChans = {}".format(numChans)
 	    # tag length
 	    tagLength = struct.unpack('b', dataFile.read(1))
 	    # status code
@@ -129,9 +176,10 @@ class DataReaderPhoenix(DataReader):
 	    res5 = struct.unpack('b', dataFile.read(1))
 	    res6 = struct.unpack('b', dataFile.read(1))
 
-	    return numScans, numChans
+	    return numScans, numChans, dateString
+		# return numScans, numChans
 
-	def readRecord(dataFile, numChans, numScans):
+	def readRecord(self, dataFile, numChans, numScans):
 	    print "samples to read = {}".format(numChans*numScans)
 	    data = np.zeros(shape=(numChans, numScans), dtype='int')
 	    for scan in xrange(0, numScans):
@@ -139,6 +187,21 @@ class DataReaderPhoenix(DataReader):
 	            dataBytes = dataFile.read(3)
 	            data[chan, scan] = twosComplement(dataBytes)
 	    return data
+
+	def twosComplement(self, dataBytes):
+	    # two's complement 24-bit integer, little endian, unsigned and signed
+		# this is padding 3 bytes out with a null byte
+		# and reading as unsigned integer with little endian (<)
+		numSamples = len(dataBytes)/self.sampleByteSize # this should be exact
+		dataRead = np.zeros(shape=(numSamples), dtype=self.dtype)
+		for i in xrange(0, numSamples):
+			sampleBytes = dataBytes[ i*self.sampleByteSize : (i+1)*self.sampleByteSize ]
+			unsigned = struct.unpack("<I", sampleBytes + "\x00")[0]
+			signed = unsigned if not (unsigned & 0x800000) else unsigned - 0x1000000
+			dataRead[i] = signed
+		# print dataRead
+		return dataRead
+
 
 	###################
 	### PHYSICAL DATA
@@ -176,11 +239,6 @@ class DataReaderPhoenix(DataReader):
 		# if magnetic channel, just return
 		return data
 
-	def twosComplement(dataBytes):
-	    # two's complement 24-bit integer, little endian, unsigned and signed
-	    unsigned = struct.unpack('<I', dataBytes + '\x00')[0]
-	    signed = unsigned if not (unsigned & 0x800000) else unsigned - 0x1000000
-	    return signed
 
 	###################
 	### READ HEADERS
@@ -221,11 +279,11 @@ class DataReaderPhoenix(DataReader):
 			self.tsNums.append(int(tsfile[-1]))
 		self.continuous = max(self.tsNums)
 		self.continuousI = self.tsNums.index(self.continuous)
-		print self.tsNums, self.continuous
+		self.continuousF = self.dataF[self.continuousI]
 		# read the table data
-		tableData = self.readTable()
+		self.tableData = self.readTable()
 		# and then populate the headers
-		headers, chanHeaders = self.headersFromTable(tableData)
+		self.headers, self.chanHeaders = self.headersFromTable(self.tableData)
 		# finally, check the number of samples in each file
 		self.checkSamples()
 
@@ -233,7 +291,7 @@ class DataReaderPhoenix(DataReader):
 		if len(self.headerF) > 1:
 			self.printWarning("More table files than expected. Using: {}".format(self.headerF[0]))
 		tableFile = open(self.headerF[0], "rb")
-		tableData = {}
+		tableData = collections.OrderedDict()
 		# why 138 - because this seems to be how many header words there are
 		for i in xrange(0, 138):
 			# formats for reading in
@@ -268,7 +326,7 @@ class DataReaderPhoenix(DataReader):
 		        value = struct.unpack('4b', tableFile.read(4))[0]
 		        tableFile.read(9)
 		    elif header in ints1_8:
-		        value = struct.unpack('8b', tableFile.read(8))[0]
+		        value = struct.unpack('8b', tableFile.read(8))
 		        tableFile.read(5)
 		    elif header in floats:
 		        value = struct.unpack('f', tableFile.read(4))[0]
@@ -280,8 +338,6 @@ class DataReaderPhoenix(DataReader):
 		        value = struct.unpack('13s', tableFile.read(13))
 		        value = self.removeControl(value[0])
 		    tableData[header] = value
-		for h, v in tableData.items():
-			print "{} = {}".format(h,v)
 		tableFile.close()
 		return tableData
 
@@ -298,26 +354,27 @@ class DataReaderPhoenix(DataReader):
 		self.tsSampleRates = []
 		for tsNum in self.tsNums:
 			self.tsSampleRates.append(tableData["SRL{}".format(tsNum)])
-		print self.tsSampleRates
 		# for sample frequency, use the continuous channel
 		headers["sample_freq"]	= self.tsSampleRates[self.continuousI]
 		# these are the unix time stamps
-		# startDate = float(timeSplit[1] + "." + timeSplit[2])
-		# datetimeStart = datetime.utcfromtimestamp(startDate)
-		# stopDate = float(timeSplit[3] + "." + timeSplit[4])
-		# datetimeStop = datetime.utcfromtimestamp(stopDate)
-		# headers["start_date"] = datetimeStart.strftime("%Y-%m-%d")
-		# headers["start_time"] = datetimeStart.strftime("%H:%M:%S.%f")
-		# headers["stop_date"] = datetimeStop.strftime("%Y-%m-%d")
-		# headers["stop_time"] = datetimeStop.strftime("%H:%M:%S.%f")
-		# # here calculate number of samples
-		# deltaSeconds = (datetimeStop - datetimeStart).total_seconds()
-		# # calculate number of samples - have to add one because the time given in SPAM recording is the actual time of the last sample
-		# numSamples = int(deltaSeconds*headers["sample_freq"]) + 1
-		# put these in headers for ease of future calculations in merge headers
-		numSamples = 1
+		firstDate, firstTime, lastDate, lastTime = self.getDates(tableData)
+		# the start date is equal to the time of the first record
+		headers["start_date"] = firstDate
+		headers["start_time"] = firstTime
+		datetimeStart = datetime.strptime("{} {}".format(firstDate, firstTime), "%Y-%m-%d %H:%M:%S.%f")
+		# the stop date
+		datetimeLast = datetime.strptime("{} {}".format(lastDate, lastTime), "%Y-%m-%d %H:%M:%S.%f")
+		# records are usually equal to one second (beginning on 0 and ending on the last sample before the next 0)
+		datetimeStop = datetimeLast + timedelta(seconds=(1.0-1.0/headers["sample_freq"]))
+		# put the stop date and time in the headers
+		headers["stop_date"] = datetimeStop.strftime("%Y-%m-%d")
+		headers["stop_time"] = datetimeStop.strftime("%H:%M:%S.%f")
+		# here calculate number of samples
+		deltaSeconds = (datetimeStop - datetimeStart).total_seconds()
+		# calculate number of samples - have to add one because the time given in SPAM recording is the actual time of the last sample
+		numSamples = round(deltaSeconds*headers["sample_freq"]) + 1
 		headers["num_samples"] = numSamples
-		headers["ats_data_file"] = self.dataF[self.continuousI]
+		headers["ats_data_file"] = self.continuousF
 		# deal with the channel headers
 		# now want to do this in the correct order
 		# chan headers should reflect the order in the data
@@ -325,10 +382,8 @@ class DataReaderPhoenix(DataReader):
 		chanOrder = []
 		for chan in chans:
 			chanOrder.append(tableData["CH{}".format(chan.upper())])
-		print chans, chanOrder
 		# sort the lists in the right order based on chanOrder
 		chanOrder, chans = (list(x) for x in zip(*sorted(zip(chanOrder, chans), key=lambda pair: pair[0])))
-		print chans, chanOrder
 		for chan in chans:
 			chanH = self.chanDefaults()
 			# set the sample frequency from the main headers
@@ -343,7 +398,7 @@ class DataReaderPhoenix(DataReader):
 			chanH["channel_type"] = consistentChans(chan) # consistent chan naming
 			# serial numbers of coils
 			if isMagnetic(chanH["channel_type"]):
-				chanH["sensor_sernum"] = tableData["{}SN".format(chan.upper())]
+				chanH["sensor_sernum"] = tableData["{}SN".format(chan.upper())][-4:]
 				chanH["sensor_type"] = "Phoenix"
 
 			# the distances
@@ -359,13 +414,88 @@ class DataReaderPhoenix(DataReader):
 
 		# data information (meas_channels, sample_freq)
 		headers["meas_channels"] = len(chans) # this gets reformatted to an int later
-
 		# return the headers and chanHeaders from this file
 		return headers, chanHeaders
 
-		def checkSamples(self):
-			# make sure the continuous number of samples are ok
-			# and for the other sampling frequencies, just calculate the number of samples
+	def getDates(self, tableData):
+		# this is the start time of the first record
+		firstSecond = tableData["FTIM"][0]
+		firstMinute = tableData["FTIM"][1]
+		firstHour = tableData["FTIM"][2]
+		firstDay = tableData["FTIM"][3]
+		firstMonth = tableData["FTIM"][4]
+		firstYear = tableData["FTIM"][5]
+		firstCentury = tableData["FTIM"][-1]
+		firstDate = "{:02d}{:02d}-{:02d}-{:02d}".format(firstCentury, firstYear, firstMonth, firstDay)
+		firstTime = "{:02d}:{:02d}:{:02d}.000".format(firstHour, firstMinute, firstSecond)
+		# this is the start time of the last record
+		lastSecond = tableData["LTIM"][0]
+		lastMinute = tableData["LTIM"][1]
+		lastHour = tableData["LTIM"][2]
+		lastDay = tableData["LTIM"][3]
+		lastMonth = tableData["LTIM"][4]
+		lastYear = tableData["LTIM"][5]
+		lastCentury = tableData["LTIM"][-1]
+		lastDate = "{:02d}{:02d}-{:02d}-{:02d}".format(lastCentury, lastYear, lastMonth, lastDay)
+		lastTime = "{:02d}:{:02d}:{:02d}.000".format(lastHour, lastMinute, lastSecond)
+		return firstDate, firstTime, lastDate, lastTime
+
+	# check the number of samples for all the ts files
+	# recall, the format is 3 bytes two's complement per sample
+	def checkSamples(self):
+		self.recordStarts = {}
+		self.recordScans = {}
+		self.recordBytes = {}
+		self.recordSampleStarts = {}
+		self.recordSampleStops = {}
+		# loop over the tsNums
+		samplesDict = {}
+		for dFileName in self.dataF:
+			ts = int(dFileName[-1])
+			self.recordStarts[ts] = []
+			self.recordScans[ts] = []
+			self.recordBytes[ts] = []
+			self.recordSampleStarts[ts] = []
+			self.recordSampleStops[ts] = []
+			logFile = open("log{}.txt".format(ts), "w")
+			# start number of samples at 0
+			samples = 0
+			# get file size in samples
+			numBytes = os.path.getsize(dFileName)
+			bytesread = 0
+			# now run through the file and figure out the number of samples
+			dFile = open(dFileName, "rb")
+			while bytesread < numBytes:
+				numScans, numChans, dateString = self.readTag(dFile) # this is 32 bytes
+				self.recordBytes[ts].append(bytesread + self.tagByteSize)
+				dataBytes = numScans*numChans*self.sampleByteSize
+				dFile.seek(dataBytes, 1)
+				bytesread += self.tagByteSize + dataBytes
+				# save the record start times and scan lengths
+				self.recordStarts[ts].append(dateString)
+				self.recordScans[ts].append(numScans)
+				# save the sample starts
+				self.recordSampleStarts[ts].append(samples)
+				# increment the number of samples
+				# recall, a scan is all channels recorded at one time
+				# this is equivalent to one sample
+				samples += numScans # this is the count
+				# sample stop is samples -1 because inclusive of the current sample
+				self.recordSampleStops[ts].append(samples-1)
+				logFile.write("{} : {} : {} - {}\n".format(dateString, numScans, self.recordSampleStarts[ts][-1], self.recordSampleStops[ts][-1]))
+			dFile.close()
+			# save number of samples in dict
+			samplesDict[ts] = samples
+			logFile.close()
+
+		self.tsNumSamples = []
+		for tsNum in self.tsNums:
+			self.tsNumSamples.append(samplesDict[tsNum])
+
+		# check the samples of the continuous file
+		if self.tsNumSamples[self.continuousI] != self.getNumSamples():
+			self.printWarning("Number of samples calculated from times is different to that in file")
+			self.printWarning("{} samples in file, {} calculated from time".format(self.tsNumSamples[self.continuousI], self.getNumSamples()))
 
 
 	###################
@@ -382,6 +512,7 @@ class DataReaderPhoenix(DataReader):
 	def printInfoBegin(self):
 		self.printText("####################")
 		self.printText("PHOENIX READER INFO BEGIN")
+		self.printText("NOTE: Information given for continuous recording file")
 		self.printText("####################")
 
 	def printInfoEnd(self):
@@ -393,16 +524,25 @@ class DataReaderPhoenix(DataReader):
 		self.printText("####################")
 		self.printText("PHOENIX READER DATA FILE LIST BEGIN")
 		self.printText("####################")
-		self.printText("Data File\t\tSample Ranges")
-		for dFile, sRanges in zip(self.dataFileList, self.dataRanges):
-			self.printText("{}\t\t{} - {}".format(dFile, sRanges[0], sRanges[1]))
-		self.printText("Total samples = {}".format(self.getNumSamples()))
+		self.printText("TS File\t\tSampling frequency\t\tNum Samples")
+		for ts, tsF, tsN in zip(self.tsNums, self.tsSampleRates, self.tsNumSamples):
+			self.printText("{}\t\t{}\t\t{}".format(ts, tsF, tsN))
 		self.printText("####################")
 		self.printText("PHOENIX READER DATA FILE LIST END")
 		self.printText("####################")
 
+	def printTableFile(self):
+		self.printText("####################")
+		self.printText("PHOENIX READER TABLE FILE BEGIN")
+		self.printText("####################")
+		for h, v in self.tableData.items():
+			print "{} = {}".format(h,v)
+		self.printText("####################")
+		self.printText("PHOENIX READER TABLE FILE END")
+		self.printText("####################")
+
 	def printText(self, infoStr):
-		generalPrint("Emerald Reader Info", infoStr)
+		generalPrint("Phoenix Reader Info", infoStr)
 
 	def printWarning(self, warnStr):
-		warningPrint("Emerald Reader Warning", warnStr)
+		warningPrint("Phoenix Reader Warning", warnStr)

@@ -224,3 +224,18 @@ import matplotlib.pyplot as plt
 # test the data reader
 dataPath = os.path.join("..", "..", "Data", "riftVolc", "202")
 dataReader = DataReaderPhoenix(dataPath)
+dataReader.printInfo()
+dataReader.printDataFileList()
+print dataReader.getSamplesRatesTS()
+print dataReader.getNumberSamplesTS()
+dataReader.printTableFile()
+startTime = "2017-04-07 23:00:00"
+endTime = "2017-04-08 01:00:00"
+data = dataReader.getUnscaledData(startTime, endTime)
+# data = dataReader.getUnscaledSamples(startSample=1000, endSample=10000)
+plt.figure()
+for idx, chan in enumerate(data.keys()):
+    plt.subplot(dataReader.getNumChannels(), 1, idx+1)
+    plt.title(chan)
+    plt.plot(data[chan]-np.average(data[chan]))
+plt.show()
