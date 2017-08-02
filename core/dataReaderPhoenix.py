@@ -9,10 +9,13 @@ import glob
 import re, struct
 import xml.etree.ElementTree as ET
 import collections
+import copy
 from datetime import datetime, timedelta
 import numpy as np
 # import dataReader
 from dataReader import DataReader
+# import the dataWriter for Reformatting
+from dataWriterInternal import DataWriterInternal
 # utils
 from utilsIO import *
 from utilsChecks import *
@@ -49,7 +52,7 @@ class DataReaderPhoenix(DataReader):
 	##################
 	def getSamplesRatesTS(self):
 		info = {}
-		for num, sr in zip(self.tsNums, self.tsSampleRates):
+		for num, sr in zip(self.tsNums, self.tsSampleFreqs):
 			info[num] = sr
 		return info
 
@@ -216,9 +219,13 @@ class DataReaderPhoenix(DataReader):
 		options = self.parseGetDataKeywords(kwargs)
 		# get data
 		data = self.getUnscaledSamples(chans=options["chans"], startSample=options["startSample"], endSample=options["endSample"])
-		# the LSB is applied in getUnscaledSamples - this is for ease of calculation and because each data file in the run might have a separate lsb
-		# so all that is left is to divide by the dipole length in km and remove the average
+		# need to remove the gain
 		for chan in options["chans"]:
+			# apply the lsb
+			# remove the gain
+			print self.getChanGain1(chan)
+			data[chan] = data[chan]/self.getChanGain1(chan)
+			# divide by distance in km
 			if chan == 'Ex':
 				# multiply by 1000/self.getChanDx same as dividing by dist in km
 				data[chan] = 1000*data[chan]/self.getChanDx(chan)
@@ -295,7 +302,7 @@ class DataReaderPhoenix(DataReader):
 		# why 138 - because this seems to be how many header words there are
 		for i in xrange(0, 138):
 			# formats for reading in
-		    ints1 = ["EGN", "EGNC", "HGN", "MTSR", "L2NS", "L3NS", "L4NS", "TXPR", "TBVO", "TBVI", "INIT", "RQST", "MODE", "AQST", "HSMP", "CCLS",
+		    ints1 = ["EGN", "EGNC", "HGN", "HGNC", "MTSR", "L2NS", "L3NS", "L4NS", "TXPR", "TBVO", "TBVI", "INIT", "RQST", "MODE", "AQST", "HSMP", "CCLS",
 		        "TEMP", "TMAX", "CHEX", "CHEY", "CHHX", "CHHY", "CHHZ", "NREF", "CCLT", "PZLT", "NSAT", "OCTR", "CLST", "TALS", "TCMB", "TOTL"
 		    ]
 		    ints2 = ["SNUM", "MXSC", "SATR", "BADR", "BAT1","BAT2","BAT3", "EXR", "EYR", "ELEV", "SRL2", "SRL3", "SRL4", "SRL5", "LPFR", "LFRQ"]
@@ -351,11 +358,11 @@ class DataReaderPhoenix(DataReader):
 		headers = {}
 		chanHeaders = []
 		# get the sample freqs for each ts file
-		self.tsSampleRates = []
+		self.tsSampleFreqs = []
 		for tsNum in self.tsNums:
-			self.tsSampleRates.append(tableData["SRL{}".format(tsNum)])
+			self.tsSampleFreqs.append(tableData["SRL{}".format(tsNum)])
 		# for sample frequency, use the continuous channel
-		headers["sample_freq"]	= self.tsSampleRates[self.continuousI]
+		headers["sample_freq"]	= self.tsSampleFreqs[self.continuousI]
 		# these are the unix time stamps
 		firstDate, firstTime, lastDate, lastTime = self.getDates(tableData)
 		# the start date is equal to the time of the first record
@@ -388,26 +395,32 @@ class DataReaderPhoenix(DataReader):
 			chanH = self.chanDefaults()
 			# set the sample frequency from the main headers
 			chanH["sample_freq"] = headers["sample_freq"]
-			# channel input information (gain_stage1, gain_stage2, hchopper, echopper)
-			chanH["gain_stage1"] = 1
-			chanH["gain_stage2"] = 1
 			# channel output information (sensor_type, channel_type, ts_lsb, pos_x1, pos_x2, pos_y1, pos_y2, pos_z1, pos_z2, sensor_sernum)
 			chanH["ats_data_file"] = self.dataF[self.continuousI]
 			chanH["num_samples"] = numSamples
 			# channel information
 			chanH["channel_type"] = consistentChans(chan) # consistent chan naming
-			# serial numbers of coils
+
+			# magnetic channels only
 			if isMagnetic(chanH["channel_type"]):
 				chanH["sensor_sernum"] = tableData["{}SN".format(chan.upper())][-4:]
 				chanH["sensor_type"] = "Phoenix"
+				# channel input information (gain_stage1, gain_stage2, hchopper, echopper)
+				chanH["gain_stage1"] = tableData["HGN"]
+				chanH["gain_stage2"] = 1
 
-			# the distances
-			if chan == "EX":
-				chanH["pos_x1"] = float(tableData["EXLN"])/2.0
-				chanH["pos_x2"] = chanH["pos_x1"]
-			if chan == "EY":
-				chanH["pos_y1"] = float(tableData["EYLN"])/2.0
-				chanH["pos_y2"] = chanH["pos_y1"]
+			# electric channels only
+			if isElectric(chanH["channel_type"]):
+				# the distances
+				if chan == "Ex":
+					chanH["pos_x1"] = float(tableData["EXLN"])/2.0
+					chanH["pos_x2"] = chanH["pos_x1"]
+				if chan == "Ey":
+					chanH["pos_y1"] = float(tableData["EYLN"])/2.0
+					chanH["pos_y2"] = chanH["pos_y1"]
+				# channel input information (gain_stage1, gain_stage2, hchopper, echopper)
+				chanH["gain_stage1"] = tableData["EGN"]
+				chanH["gain_stage2"] = 1
 
 			# append chanHeaders to the list
 			chanHeaders.append(chanH)
@@ -457,7 +470,7 @@ class DataReaderPhoenix(DataReader):
 			self.recordBytes[ts] = []
 			self.recordSampleStarts[ts] = []
 			self.recordSampleStops[ts] = []
-			logFile = open("log{}.txt".format(ts), "w")
+			# logFile = open("log{}.txt".format(ts), "w")
 			# start number of samples at 0
 			samples = 0
 			# get file size in samples
@@ -482,11 +495,11 @@ class DataReaderPhoenix(DataReader):
 				samples += numScans # this is the count
 				# sample stop is samples -1 because inclusive of the current sample
 				self.recordSampleStops[ts].append(samples-1)
-				logFile.write("{} : {} : {} - {}\n".format(dateString, numScans, self.recordSampleStarts[ts][-1], self.recordSampleStops[ts][-1]))
+				# logFile.write("{} : {} : {} - {}\n".format(dateString, numScans, self.recordSampleStarts[ts][-1], self.recordSampleStops[ts][-1]))
 			dFile.close()
 			# save number of samples in dict
 			samplesDict[ts] = samples
-			logFile.close()
+			# logFile.close()
 
 		self.tsNumSamples = []
 		for tsNum in self.tsNums:
@@ -501,9 +514,96 @@ class DataReaderPhoenix(DataReader):
 	###################
 	### REFORMAT DATA TO INTERNAL FORMAT
 	###################
-	# def reformat():
-		# go through the data files and then reformat them to the internal data format
+	def reformatHigh(self, path):
+		writer = DataWriterInternal()
+		for idx, ts in enumerate(self.tsNums):
+			# let's get the headers
+			headers = self.getHeaders()
+			chanHeaders, chanMap = self.getChanHeaders()
+			chans = self.getChannels()
+			# now go through the different ts files to get ready to output
+			if ts == self.continuous:
+				continue
+			sampleFreq = self.tsSampleFreqs[idx]
+			# set sample frequency in headers
+			headers["sample_freq"] = sampleFreq
+			for cH in chanHeaders:
+				cH["sample_freq"] = sampleFreq
+			# now open the data file
+			dFile = open(self.dataF[idx], "rb")
+			# each record has to be read separately and then compare time to previous
+			outStartTime = datetime.strptime(self.recordStarts[ts][0], "%Y-%m-%d %H:%M:%S.%f")
+			# set up the data dictionary
+			data = {}
+			for record, startDate in enumerate(self.recordStarts[ts]):
+				print record
+				if record > 20:
+					break
+				# start date is a string
+				startByte = self.recordBytes[ts][record]
+				startDateTime = datetime.strptime(startDate, "%Y-%m-%d %H:%M:%S.%f")
+				# read the record - numpy does not support 24 bit two's complement (3 bytes) - hence use struct
+				bytesToRead = self.recordScans[ts][record]*self.sampleByteSize*self.getNumChannels()
+				dFile.seek(startByte, 0) # seek to start byte from start of file
+				dataBytes = dFile.read(bytesToRead)
+				dataRead = self.twosComplement(dataBytes)
+				dataRecord = {}
+				for chan in chans:
+					# as it is the same order as in the header file
+					chanIndex = self.chanMap[chan]
+					dataRecord[chan] = dataRead[chanIndex:self.recordScans[ts][record]*self.getNumChannels():self.getNumChannels()]
+				# need to compare to previous record
+				if record != 0 and startDateTime != prevEndTime:
+					# then need to write out the current data before saving the new data
+					# write out current data
+					outStopTime = prevEndTime - timedelta(seconds=1.0/sampleFreq) # because inclusive of first sample (previous end time for continuity comparison)
+					# calculate number of samples
+					numSamples = data[chans[0]].size
+					headers["start_date"] = outStartTime.strftime("%Y-%m-%d")
+					headers["start_time"] = outStartTime.strftime("%H:%M:%S.%f")
+					headers["stop_date"] = outStopTime.strftime("%Y-%m-%d")
+					headers["stop_time"] = outStopTime.strftime("%H:%M:%S.%f")
+					headers["num_samples"] = numSamples
+					for cH in chanHeaders:
+						cH["start_date"] = headers["start_date"]
+						cH["start_time"] = headers["start_time"]
+						cH["stop_date"] = headers["stop_date"]
+						cH["stop_time"] = headers["stop_time"]
+						cH["num_samples"] = numSamples
+					# get the outpath
+					dataOutpath = os.path.join(path, "meas_ts{}_{}_{}".format(ts, outStartTime.strftime("%Y_%m_%d_%H_%M_%S"), outStopTime.strftime("%Y_%m_%d_%H_%M_%S")))
+					# write out
+					writer.setOutPath(dataOutpath)
+					writer.writeData(headers, chanHeaders, data)
+					# then save current data
+					outStartTime = startDateTime
+					data = copy.deepcopy(dataRecord)
+					prevEndTime = startDateTime + timedelta(seconds=((1.0/sampleFreq)*self.recordScans[ts][record]))
+				else:
+					# then record == 0 or startDateTime == prevEndTime
+					# update prevEndTime
+					prevEndTime = startDateTime + timedelta(seconds=((1.0/sampleFreq)*self.recordScans[ts][record]))
+					if record == 0:
+						data = copy.deepcopy(dataRecord)
+						continue
+					# otherwise, want to concatenate the data
+					for chan in chans:
+						data[chan] = np.concatenate((data[chan], dataRecord[chan]))
+			# close the data file
+			dFile.close()
 
+	def reformatContinuous(self, path):
+		writer = DataWriterInternal()
+		outpath = "meas_ts{}_{}_{}".format(self.continuous, self.getStartDatetime().strftime("%Y_%m_%d_%H_%M_%S"), self.getStopDatetime().strftime("%Y_%m_%d_%H_%M_%S"))
+		outpath = os.path.join(path, outpath)
+		writer.setOutPath(outpath)
+		headers = self.getHeaders()
+		chanHeaders, chanMap = self.getChanHeaders()
+		writer.writeData(headers, chanHeaders, self.getUnscaledSamples())
+
+	def reformat(self, prepend):
+		self.reformatContinuous(prepend)
+		self.reformatHigh(prepend)
 
 
 	###################
@@ -524,9 +624,9 @@ class DataReaderPhoenix(DataReader):
 		self.printText("####################")
 		self.printText("PHOENIX READER DATA FILE LIST BEGIN")
 		self.printText("####################")
-		self.printText("TS File\t\tSampling frequency\t\tNum Samples")
-		for ts, tsF, tsN in zip(self.tsNums, self.tsSampleRates, self.tsNumSamples):
-			self.printText("{}\t\t{}\t\t{}".format(ts, tsF, tsN))
+		self.printText("TS File\t\tSampling frequency (Hz)\t\tNum Samples")
+		for dF, tsF, tsN in zip(self.dataF, self.tsSampleFreqs, self.tsNumSamples):
+			self.printText("{}\t\t{}\t\t{}".format(os.path.basename(dF), tsF, tsN))
 		self.printText("####################")
 		self.printText("PHOENIX READER DATA FILE LIST END")
 		self.printText("####################")

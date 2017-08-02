@@ -10,7 +10,7 @@ from datetime import datetime
 ###################
 # move this out in the future
 def getDataDirectoryFormats():
-	return ["meas", "run"]
+	return ["meas", "run", "phnx"]
 
 # get both files and directories in directory
 def getDirectoryContents(path):
@@ -60,11 +60,11 @@ def checkDirExistence(path):
 	return True
 
 def makeDir(path):
-	os.makedirs(path)	
+	os.makedirs(path)
 
 def checkAndMakeDir(path):
 	if not checkDirExistence(path):
-		makeDir(path)	
+		makeDir(path)
 
 # put this into a function because it allows dealing with error messages in one place
 def checkFilepath(path):
@@ -98,7 +98,7 @@ def arrayToStringTab(data):
 	for d in data:
 		outputStr = outputStr + "{:.8f}\t".format(d)
 	outputStr = outputStr.strip()
-	return outputStr	
+	return outputStr
 
 def arrayToStringSci(data):
 	outputStr = ''
@@ -156,10 +156,10 @@ def list2ranges(data):
 
 	if n - scan == 1:
 		result.append(str(lst[scan]))
-		resultVals.append([lst[scan], lst[scan], 0])		
+		resultVals.append([lst[scan], lst[scan], 0])
 	elif n - scan == 2:
 		result.append(",".join(itertools.imap(str, lst[scan:])))
-		resultVals.append([lst[scan], lst[scan], 0])	
-		resultVals.append([lst[scan+1], lst[scan+1], 0])		
+		resultVals.append([lst[scan], lst[scan], 0])
+		resultVals.append([lst[scan+1], lst[scan+1], 0])
 
 	return ",".join(result)

@@ -7,8 +7,8 @@ Created on Thu Mar 24 08:18:04 2016
 class DataWriterInternal
 Inherits from DataWriter
 This is simply head files and binary data files
-## In the future 
-	The internal data format is in fact ATS
+## In the future
+	Could make the internal data format ATS
 	With the 1024 header set at the beginning of the file for each channel
 However, the header file saved is relevant only to this software
 The header file means less processing to read the header information
@@ -44,23 +44,23 @@ class DataWriterInternal(DataWriter):
 
 	#	# number samples int32 in 4-7
 
-	#	# float sampleFreq in Hz 
+	#	# float sampleFreq in Hz
 
 	#	# unix TIMESTAMP for starttime unsigned int
 
 	###################
 	### DEBUG
-	###################		
+	###################
 	def printInfoBegin(self):
-		self.printText("####################")	
-		self.printText("DATA WRITER INTERNAL INFO BEGIN")		
-		self.printText("####################")	
+		self.printText("####################")
+		self.printText("DATA WRITER INTERNAL INFO BEGIN")
+		self.printText("####################")
 
 	def printInfoEnd(self):
 		self.printText("####################")
-		self.printText("DATA WRITER INTERNAL INFO END")		
-		self.printText("####################")			
-		
+		self.printText("DATA WRITER INTERNAL INFO END")
+		self.printText("####################")
+
 	def printText(self, infoStr):
 		generalPrint("Data Writer Internal Info", infoStr)
 
