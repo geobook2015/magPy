@@ -149,10 +149,8 @@ class DataReaderPhoenix(DataReader):
 	    serialNum = struct.unpack('h', dataFile.read(2))
 	    # num scans
 	    numScans = struct.unpack('h', dataFile.read(2))[0]
-	    # print "numScans = {}".format(numScans)
 	    # channels per scan
 	    numChans = struct.unpack('b', dataFile.read(1))[0]
-	    # print "numChans = {}".format(numChans)
 	    # tag length
 	    tagLength = struct.unpack('b', dataFile.read(1))
 	    # status code
@@ -183,7 +181,6 @@ class DataReaderPhoenix(DataReader):
 		# return numScans, numChans
 
 	def readRecord(self, dataFile, numChans, numScans):
-	    print "samples to read = {}".format(numChans*numScans)
 	    data = np.zeros(shape=(numChans, numScans), dtype='int')
 	    for scan in xrange(0, numScans):
 	        for chan in xrange(0, numChans):
@@ -202,7 +199,6 @@ class DataReaderPhoenix(DataReader):
 			unsigned = struct.unpack("<I", sampleBytes + "\x00")[0]
 			signed = unsigned if not (unsigned & 0x800000) else unsigned - 0x1000000
 			dataRead[i] = signed
-		# print dataRead
 		return dataRead
 
 
@@ -223,7 +219,6 @@ class DataReaderPhoenix(DataReader):
 		for chan in options["chans"]:
 			# apply the lsb
 			# remove the gain
-			print self.getChanGain1(chan)
 			data[chan] = data[chan]/self.getChanGain1(chan)
 			# divide by distance in km
 			if chan == 'Ex':
@@ -536,9 +531,6 @@ class DataReaderPhoenix(DataReader):
 			# set up the data dictionary
 			data = {}
 			for record, startDate in enumerate(self.recordStarts[ts]):
-				print record
-				if record > 20:
-					break
 				# start date is a string
 				startByte = self.recordBytes[ts][record]
 				startDateTime = datetime.strptime(startDate, "%Y-%m-%d %H:%M:%S.%f")
@@ -636,7 +628,7 @@ class DataReaderPhoenix(DataReader):
 		self.printText("PHOENIX READER TABLE FILE BEGIN")
 		self.printText("####################")
 		for h, v in self.tableData.items():
-			print "{} = {}".format(h,v)
+			self.printText("{} = {}".format(h,v))
 		self.printText("####################")
 		self.printText("PHOENIX READER TABLE FILE END")
 		self.printText("####################")
